@@ -2009,7 +2009,7 @@ wheels = [
 ]
 
 [[package]]
-name = "persist0"
+name = "persist0-tda"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

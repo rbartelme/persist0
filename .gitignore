@@ -14,3 +14,4 @@ python/persist0/*.so
 
 #pypi
 .pypirc
+target-docker/
