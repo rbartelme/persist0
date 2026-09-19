@@ -1,0 +1,24 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "persist0"
+version = "0.1.0"
+description = "Batched differentiable H0 persistence for torch"
+readme = "README.md"
+license = { text = "MIT OR Apache-2.0" }
+requires-python = ">=3.9"
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+torch = ["torch>=2.2"]
+test = ["pytest", "scipy", "ripser", "torch>=2.2"]
+
+[project.urls]
+Repository = "https://github.com/rbartelme/persist0"
+
+[tool.maturin]
+python-source = "python"
+module-name = "persist0._core"
+features = ["pyo3/extension-module"]
