@@ -1,1 +1,14 @@
+# Rust
 /target
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.venv/
+
+# maturin
+*.abi3.so
+python/persist0/*.so
+
