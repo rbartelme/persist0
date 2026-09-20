@@ -162,5 +162,48 @@ fn main() {
     if failures > 0 {
         std::process::exit(1);
     }
+        // ---- timing: GPU launch+sync vs CPU rayon, per (n, B) ----
+    println!("\n{:>5} {:>5} {:>10} {:>10} {:>7}", "n", "B", "gpu µs", "cpu µs", "ratio");
+    for &n in &[64usize, 128, 256] {
+        for &b in &[1usize, 16, 64, 256] {
+            let mut d = vec![0f32; b * n * n];
+            for k in 0..b {
+                for i in 0..n {
+                    for j in (i + 1)..n {
+                        let w: f32 = rand::random_range(0.0..1.0);
+                        d[k * n * n + i * n + j] = w;
+                        d[k * n * n + j * n + i] = w;
+                    }
+                }
+            }
+            let d_dev = DeviceBuffer::from_host(&stream, &d).unwrap();
+            let mut out_dev = DeviceBuffer::<u32>::zeroed(&stream, b * (n - 1) * 2).unwrap();
+            let cfg = LaunchConfig {
+                grid_dim: (b as u32, 1, 1),
+                block_dim: (n as u32, 1, 1),
+                shared_mem_bytes: 0,
+            };
+
+            // warm-up
+            unsafe { module.h0_prim(stream.as_ref(), cfg, &d_dev, n as u32, &mut out_dev) }.unwrap();
+            stream.synchronize().unwrap();
+
+            let reps = 50;
+            let t = std::time::Instant::now();
+            for _ in 0..reps {
+                unsafe { module.h0_prim(stream.as_ref(), cfg, &d_dev, n as u32, &mut out_dev) }.unwrap();
+            }
+            stream.synchronize().unwrap();
+            let gpu_us = t.elapsed().as_secs_f64() * 1e6 / reps as f64;
+
+            let t = std::time::Instant::now();
+            for _ in 0..reps {
+                std::hint::black_box(persist0::batch::h0_batched(&d, b, n));
+            }
+            let cpu_us = t.elapsed().as_secs_f64() * 1e6 / reps as f64;
+
+            println!("{n:>5} {b:>5} {gpu_us:>10.1} {cpu_us:>10.1} {:>7.2}", cpu_us / gpu_us);
+        }
+    }
     println!("✓ SUCCESS: GPU Prim matches CPU Kruskal on all batches");
 }
