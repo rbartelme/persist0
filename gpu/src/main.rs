@@ -111,7 +111,6 @@ fn main() {
     let stream = ctx.default_stream();
     let module = kernels::load(&ctx).expect("load module");
 
-    let mut rng = rand::rng();
     let mut failures = 0;
 
     for &n in &[8usize, 32, 64, 128, 256] {
