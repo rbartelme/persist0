@@ -55,7 +55,7 @@ zero and are not returned. The numpy-level kernel is also exposed as `persist0.h
 - **Deterministic tie-break.** Edges are ordered by `(death, i, j)` using `f32::total_cmp`. Under
   a strict total order on edges the MST is unique, so every MST algorithm returns the same edge
   set — which is what lets the CPU and GPU paths use different algorithms and still agree exactly.
-- **CPU path is the specification.** Kruskal with union-find, rayon across the batch. The GPU
+- **CPU path is the specification.** Dense Prim, rayon across the batch. The GPU
   path must match it edge-for-edge in the test suite.
 
 ## GPU kernel
@@ -64,7 +64,7 @@ zero and are not returned. The numpy-level kernel is also exposed as `persist0.h
 cuda-oxide. One thread block per batch item, one thread per vertex, Prim's algorithm with a
 shared-memory min-reduction per round; no atomics. `D` is read directly from global memory (row
 reads are coalesced since `D` is symmetric), so N is limited by block size (≤ 1024), not shared
-memory. The crate's `main` verifies the GPU edge set against the CPU Kruskal on 64 random
+memory. The crate's `main` verifies the GPU edge set against the CPU kernel on 64 random
 matrices at each of N ∈ {8, 32, 64, 128, 256} and then prints the timing table below.
 
 ```bash
@@ -92,20 +92,19 @@ cargo test
 RTX 4070 Laptop (sm_89, 36 SMs) vs. one core of the same laptop. GPU times are kernel + sync with
 `D` already resident; CPU times are single-threaded `h0_single` from criterion.
 
-| N   | CPU, 1 core (Kruskal) | GPU, B = 1 | GPU per item, B = 64 |
-| --- | --------------------: | ---------: | -------------------: |
-| 64  | 62 µs                 | 94 µs      | 1.5 µs               |
-| 128 | 988 µs                | 196 µs     | 3.2 µs               |
-| 256 | 4.6 ms                | 427 µs     | 7.1 µs               |
+| N   | CPU, 1 core (Prim) | GPU, B = 1 | GPU per item, B = 64 |
+| --- | -----------------: | ---------: | -------------------: |
+| 64  | 17 µs              | 94 µs      | 1.5 µs               |
+| 128 | 67 µs              | 196 µs     | 3.2 µs               |
+| 256 | 259 µs             | 427 µs     | 7.1 µs               |
 
 GPU time is nearly flat in B until the grid exceeds one wave (~216 resident blocks of 256
 threads on this card), because every batch item is its own block. It is latency-bound in N:
-N−1 rounds of ~9 block barriers each. The CPU path is superlinear in N because Kruskal on a
-complete graph sorts O(N²) edges; a dense Prim on the CPU would be O(N²) and is a planned
-improvement.
+N−1 rounds of ~9 block barriers each.
 
-Takeaway: for the training-loop regime (B ≥ 16, N ≥ 64) the GPU kernel is 30–60× faster than
-the batched CPU path; at N = 64 the crossover is roughly B ≈ 12 on 8 cores.
+Takeaway: per item at B = 64 the GPU kernel is 12× (N = 64) to 36× (N = 256) faster than one
+CPU core, or roughly 1.5–4.5× faster than the batched CPU path on all 8 cores; at N = 64 the
+crossover is roughly B ≈ 40 on 8 cores.
 
 ## Toolchain (GPU crate only)
 
@@ -121,7 +120,6 @@ Tested on x86_64 Linux under WSL2. aarch64 untested.
 ## Roadmap
 
 - Expose the GPU kernel from Python behind a `cuda` feature with a CPU/GPU parity test.
-- Dense Prim on the CPU path.
 - Borůvka on the GPU if N ≫ 256 ever matters (fewer rounds; the Prim kernel is round-bound).
 - H₁ and above, which need a real persistence algorithm (column reduction with clearing and
   apparent pairs); the plan is to integrate [lophat](https://crates.io/crates/lophat) for the

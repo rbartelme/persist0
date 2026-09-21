@@ -1,75 +1,89 @@
-/// H0 persistence of one NxN distance matrix 9row-major, uppper triangle read).
-/// Returns the N-1 Minimum Spanning Tree edges as (i, j), i < j, sorted by (death, i, j).
+use std::cmp::Ordering;
+
+/// H0 persistence of one NxN distance matrix (row-major, symmetric, zero diagonal).
+/// Returns the N-1 minimum spanning tree edges as (i, j), i < j, sorted by (death, i, j).
+///
+/// Dense Prim from vertex 0. Edges are totally ordered by `(weight, min(i, j), max(i, j))`
+/// with `f32::total_cmp` on the weight, so the MST is unique and the result is
+/// deterministic. Each round selects the cheapest edge out of the tree and relaxes every
+/// remaining vertex through the new tree vertex; the selection for the next round is done
+/// in the same pass, so the whole thing is one row read per round and O(N²) total.
 pub fn h0_single(d: &[f32], n: usize) -> Vec<(u32, u32)> {
     debug_assert_eq!(d.len(), n * n);
     if n < 2 {
         return Vec::new();
     }
 
-    // All upper-triangle edges, sorted by (weight, i, j) with deterministic tie-breaking.
-    let mut edges: Vec<(f32, u32, u32)> = Vec::with_capacity(n * (n - 1) / 2);
-    for i in 0..n {
-        for j in (i + 1)..n {
-            edges.push((d[i * n + j], i as u32, j as u32));
+    // dist[i], par[i]: best known edge from vertex i into the tree (i not yet in the tree).
+    // rem: vertices not yet in the tree.
+    let mut dist: Vec<f32> = d[..n].to_vec();
+    let mut par: Vec<u32> = vec![0; n];
+    let mut rem: Vec<u32> = (1..n as u32).collect();
+    let mut out: Vec<(u32, u32)> = Vec::with_capacity(n - 1);
+
+    // Initial selection from the edges out of vertex 0.
+    let mut best_k = 0usize;
+    let mut best_key = edge_key(dist[1], 1, 0);
+    for (k, &i) in rem.iter().enumerate().skip(1) {
+        let key = edge_key(dist[i as usize], i, par[i as usize]);
+        if edge_lt(key, best_key) {
+            best_k = k;
+            best_key = key;
         }
     }
-    edges.sort_unstable_by(|a, b| {
-        a.0.partial_cmp(&b.0)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(a.1.cmp(&b.1))
-            .then(a.2.cmp(&b.2))
-    });
 
-    let mut uf = UnionFind::new(n);
-    let mut out = Vec::with_capacity(n - 1);
-    for (_, i, j) in edges {
-        if uf.union(i as usize, j as usize) {
-            out.push((i, j));
-            if out.len() == n - 1 {
-                break;
+    loop {
+        let v = rem.swap_remove(best_k);
+        out.push((best_key.1, best_key.2));
+        let Some((&first, rest)) = rem.split_first() else {
+            break;
+        };
+
+        // Relax every remaining vertex through v and pick next round's winner as we go.
+        let row = &d[v as usize * n..(v as usize + 1) * n];
+        best_k = 0;
+        best_key = relax(row, v, first, &mut dist, &mut par);
+        for (k, &i) in rest.iter().enumerate() {
+            let key = relax(row, v, i, &mut dist, &mut par);
+            if edge_lt(key, best_key) {
+                best_k = k + 1;
+                best_key = key;
             }
         }
     }
+
+    out.sort_unstable_by(|&(i0, j0), &(i1, j1)| {
+        let w0 = d[i0 as usize * n + j0 as usize];
+        let w1 = d[i1 as usize * n + j1 as usize];
+        w0.total_cmp(&w1).then(i0.cmp(&i1)).then(j0.cmp(&j1))
+    });
     out
 }
 
-struct UnionFind {
-    parent: Vec<u32>,
-    rank: Vec<u8>,
+/// Sort key of the edge {a, b} with weight w.
+#[inline(always)]
+fn edge_key(w: f32, a: u32, b: u32) -> (f32, u32, u32) {
+    (w, a.min(b), a.max(b))
 }
 
-impl UnionFind {
-    fn new(n: usize) -> Self {
-        Self {
-            parent: (0..n as u32).collect(),
-            rank: vec![0; n],
-        }
-    }
+#[inline(always)]
+fn edge_lt(x: (f32, u32, u32), y: (f32, u32, u32)) -> bool {
+    x.0.total_cmp(&y.0).then(x.1.cmp(&y.1)).then(x.2.cmp(&y.2)) == Ordering::Less
+}
 
-    fn find(&mut self, mut x: usize) -> usize {
-        while self.parent[x] as usize != x {
-            let p = self.parent[x] as usize;
-            self.parent[x] = self.parent[p]; // path halving
-            x = p;
-        }
-        x
-    }
-
-    /// Returns true if merged happened (i.e. edge is in the minimum spanning tree)
-    fn union(&mut self, a: usize, b: usize) -> bool {
-        let (ra, rb) = (self.find(a), self.find(b));
-        if ra == rb {
-            return false;
-        }
-        match self.rank[ra].cmp(&self.rank[rb]) {
-            std::cmp::Ordering::Less => self.parent[ra] = rb as u32,
-            std::cmp::Ordering::Greater => self.parent[rb] = ra as u32,
-            std::cmp::Ordering::Equal => {
-                self.parent[rb] = ra as u32;
-                self.rank[ra] += 1;
-            }
-        }
-        true
+/// Offer vertex i the edge (i, v) with weight row[i]; keep it if it beats the current best.
+/// Returns the key of i's best edge afterwards.
+#[inline(always)]
+fn relax(row: &[f32], v: u32, i: u32, dist: &mut [f32], par: &mut [u32]) -> (f32, u32, u32) {
+    let w = row[i as usize];
+    let cand = edge_key(w, i, v);
+    let cur = edge_key(dist[i as usize], i, par[i as usize]);
+    if edge_lt(cand, cur) {
+        dist[i as usize] = w;
+        par[i as usize] = v;
+        cand
+    } else {
+        cur
     }
 }
 
