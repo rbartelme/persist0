@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 description = "Batched differentiable H0 persistence (MST death indices) for torch"
 repository = "https://github.com/rbartelme/persist0"
 readme = "README.md"
-exclude = ["python/", "tests/", ".venv/", "*.whl"]
+exclude = ["python/", "tests/", ".venv/", "*.whl", "gpu/"]
 keywords = ["tda", "persistent-homology", "mst", "torch"]
 categories = ["science", "algorithms"]
 
