@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "persist0-tda"
-version = "0.1.0"
+version = "0.2.0"
 description = "Batched differentiable H0 persistence for torch"
 readme = "README.md"
 license = { text = "MIT OR Apache-2.0" }
